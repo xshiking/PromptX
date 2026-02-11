@@ -39,11 +39,20 @@ class ProjectManager {
    * @param {string} ideType - IDE类型
    */
   static setCurrentProject(workingDirectory, mcpId, ideType) {
+    // 检查是否为远程模式（PromptX 和项目在不同机器上）
+    const isRemoteMode = process.env.PROMPTX_REMOTE_MODE === 'true'
+    
     this.currentProject = {
       workingDirectory: path.resolve(workingDirectory),
       mcpId,
       ideType,
-      initialized: true
+      initialized: true,
+      // 🎯 远程模式使用 http transport，将数据存储在用户目录下
+      transport: isRemoteMode ? 'http' : 'local'
+    }
+    
+    if (isRemoteMode) {
+      logger.info(`[ProjectManager] 远程模式：项目数据将存储在 ~/.promptx/project/ 下`)
     }
   }
 
@@ -403,6 +412,12 @@ ${projectList}
    * @returns {Promise<boolean>} 是否为有效项目目录
    */
   async validateProjectPath(projectPath) {
+    // 🎯 远程模式：跳过本地路径验证
+    if (process.env.PROMPTX_REMOTE_MODE === 'true') {
+      logger.info(`[ProjectManager] 远程模式已启用，跳过路径验证: ${projectPath}`)
+      return true
+    }
+
     try {
       // 基础检查：路径存在且为目录
       const stat = await fs.stat(projectPath)

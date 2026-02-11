@@ -34,6 +34,14 @@ export class PromptXServerAdapter implements IServerPort {
       const port = config.port ?? cfg.getPort()
       const debug = config.debug ?? cfg.getDebug()
       const corsEnabled = cfg.getCorsEnabled()
+      
+      // 设置远程模式环境变量（供 @promptx/core 读取）
+      if (config.remoteMode) {
+        process.env.PROMPTX_REMOTE_MODE = 'true'
+        logger.info('Remote mode enabled - local path validation will be skipped')
+      } else {
+        delete process.env.PROMPTX_REMOTE_MODE
+      }
   
       // Create and start the PromptX MCP server
       this.server = new PromptXMCPServer({

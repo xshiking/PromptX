@@ -30,6 +30,10 @@
         "label": "调试模式",
         "description": "输出更多日志信息用于故障排除"
       },
+      "remoteMode": {
+        "label": "远程模式",
+        "description": "当 PromptX 和项目工程在不同机器上时启用，跳过本地路径验证"
+      },
       "save": "保存配置",
       "saving": "保存中...",
       "reset": "重置为默认"

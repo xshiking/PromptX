@@ -30,6 +30,10 @@
         "label": "Debug Mode",
         "description": "Output more log information for troubleshooting"
       },
+      "remoteMode": {
+        "label": "Remote Mode",
+        "description": "Enable when PromptX and project are on different machines, skips local path validation"
+      },
       "save": "Save Configuration",
       "saving": "Saving...",
       "reset": "Reset to Default"

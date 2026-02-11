@@ -48,16 +48,11 @@ export class AutoStartWindow {
     ipcMain.handle('auto-start:enable', async (_: IpcMainInvokeEvent) => {
       try {
         await this.autoStartService.enableAutoStart()
-        return {
-          success: true,
-          message: t('autoStart.enabled')
-        }
+        return true
       } catch (error: any) {
-        console.error('Failed to enable auto-start:', error)
-        return {
-          success: false,
-          error: error.message || t('autoStart.enableFailed')
-        }
+        const msg = error?.message || t('autoStart.enableFailed')
+        console.error('Failed to enable auto-start:', msg)
+        throw new Error(msg)
       }
     })
 
@@ -65,55 +60,33 @@ export class AutoStartWindow {
     ipcMain.handle('auto-start:disable', async (_: IpcMainInvokeEvent) => {
       try {
         await this.autoStartService.disableAutoStart()
-        return {
-          success: true,
-          message: t('autoStart.disabled')
-        }
+        return true
       } catch (error: any) {
-        console.error('Failed to disable auto-start:', error)
-        return {
-          success: false,
-          error: error.message || t('autoStart.disableFailed')
-        }
+        const msg = error?.message || t('autoStart.disableFailed')
+        console.error('Failed to disable auto-start:', msg)
+        throw new Error(msg)
       }
     })
 
     // 获取自启动状态
     ipcMain.handle('auto-start:status', async (_: IpcMainInvokeEvent) => {
       try {
-        const isEnabled = await this.autoStartService.isAutoStartEnabled()
-        return {
-          success: true,
-          data: {
-            enabled: isEnabled
-          }
-        }
+        return await this.autoStartService.isAutoStartEnabled()
       } catch (error: any) {
-        console.error('Failed to get auto-start status:', error)
-        return {
-          success: false,
-          error: error.message || t('autoStart.getStatusFailed')
-        }
+        const msg = error?.message || t('autoStart.getStatusFailed')
+        console.error('Failed to get auto-start status:', msg)
+        throw new Error(msg)
       }
     })
 
     // 切换自启动状态
     ipcMain.handle('auto-start:toggle', async (_: IpcMainInvokeEvent) => {
       try {
-        const newStatus = await this.autoStartService.toggleAutoStart()
-        return {
-          success: true,
-          data: {
-            enabled: newStatus
-          },
-          message: newStatus ? t('autoStart.enabled') : t('autoStart.disabled')
-        }
+        return await this.autoStartService.toggleAutoStart()
       } catch (error: any) {
-        console.error('Failed to toggle auto-start:', error)
-        return {
-          success: false,
-          error: error.message || t('autoStart.toggleFailed')
-        }
+        const msg = error?.message || t('autoStart.toggleFailed')
+        console.error('Failed to toggle auto-start:', msg)
+        throw new Error(msg)
       }
     })
   }

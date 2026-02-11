@@ -47,7 +47,8 @@ class PromptXDesktopApp {
 
     // === 先创建 autoStartService ===
     const autoStartAdapter = new ElectronAutoStartAdapter({
-      name: 'PromptX Desktop',
+      // Use productName from electron-builder for consistent OS-level auto-start identity
+      name: app.getName(),
       path: process.execPath,
       isHidden: true, // 开机启动时隐藏窗口
       mac: { useLaunchAgent: true }  // macOS: 使用 LaunchAgent 更稳定
@@ -108,8 +109,14 @@ class PromptXDesktopApp {
     }
 
     // Auto open main window on startup for better UX
-    logger.info('Opening main window...')
-    this.trayPresenter?.openMainWindow()
+    // If started via auto-start with hidden flag, avoid popping the main window.
+    const startedHidden = process.argv.includes('--hidden')
+    if (!startedHidden) {
+      logger.info('Opening main window...')
+      this.trayPresenter?.openMainWindow()
+    } else {
+      logger.info('Started with --hidden, skipping auto-open of main window')
+    }
 
     // Auto check and download updates on startup (non-blocking)
     logger.info('Scheduling automatic update check and download...')
@@ -171,13 +178,14 @@ class PromptXDesktopApp {
       return ServerConfig.default().toJSON()
     })
 
-    ipcMain.handle('server-config:update', async (_event, payload: { host: string; port: number; debug?: boolean }) => {
+    ipcMain.handle('server-config:update', async (_event, payload: { host: string; port: number; debug?: boolean; remoteMode?: boolean }) => {
       const base = ServerConfig.default().toJSON()
       const created = ServerConfig.create({
         ...base,
         host: payload.host,
         port: payload.port,
-        debug: payload.debug ?? base.debug
+        debug: payload.debug ?? base.debug,
+        remoteMode: payload.remoteMode ?? base.remoteMode
       })
       if (!created.ok) {
         throw new Error(created.error.message)

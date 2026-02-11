@@ -1,5 +1,7 @@
-<role>
-  <personality>
+<role id="writer">
+# Writer - 专业写作助手
+
+<personality>
     @!thought://issue-paradigm
     @!thought://purpose-driven
     @!thought://structure-thinking

@@ -20,6 +20,11 @@ export interface ElectronAutoStartAdapterOptions {
   path?: string;
   /** 启动时隐藏，默认为 false */
   isHidden?: boolean;
+  /**
+   * 兼容旧版本的应用名称（历史自启动项名称）。
+   * 用于升级后清理旧的启动项，避免“看起来已开启但其实控制不了旧项”的问题。
+   */
+  legacyNames?: string[];
   /** macOS 特定选项 */
   mac?: {
     useLaunchAgent?: boolean;
@@ -43,13 +48,23 @@ export class ElectronAutoStartAdapter implements IAutoStartPort {
   private launcher: AutoLaunch;
 
   /**
+   * 旧名称对应的 AutoLaunch 实例（用于兼容/清理）
+   * @private
+   */
+  private legacyLaunchers: AutoLaunch[];
+
+  /**
    * 创建 ElectronAutoStartAdapter 的新实例
    * 
    * @constructor
    * @param {ElectronAutoStartAdapterOptions} options - 配置选项
    */
   constructor(options: ElectronAutoStartAdapterOptions) {
-    this.launcher = new AutoLaunch(options);
+    const { legacyNames, ...autoLaunchOptions } = options
+    this.launcher = new AutoLaunch(autoLaunchOptions);
+    this.legacyLaunchers = (legacyNames ?? [])
+      .filter((n) => !!n && n !== options.name)
+      .map((name) => new AutoLaunch({ ...autoLaunchOptions, name }))
   }
 
   /**
@@ -66,6 +81,18 @@ export class ElectronAutoStartAdapter implements IAutoStartPort {
       const isEnabled = await this.isEnabled();
       if (!isEnabled) {
         await this.launcher.enable();
+      }
+
+      // 升级兼容：若旧名称的启动项存在，尽量清理（不影响主流程）
+      for (const legacy of this.legacyLaunchers) {
+        try {
+          const legacyEnabled = await legacy.isEnabled()
+          if (legacyEnabled) {
+            await legacy.disable()
+          }
+        } catch {
+          // ignore legacy cleanup errors
+        }
       }
     } catch (error) {
       console.error('Failed to enable auto-start:', error);
@@ -84,9 +111,17 @@ export class ElectronAutoStartAdapter implements IAutoStartPort {
   async disable(): Promise<void> {
     try {
       // 首先检查是否已禁用，避免重复操作
-      const isEnabled = await this.isEnabled();
-      if (isEnabled) {
-        await this.launcher.disable();
+      const mainEnabled = await this.launcher.isEnabled();
+      if (mainEnabled) await this.launcher.disable();
+
+      // 同时禁用所有旧名称启动项
+      for (const legacy of this.legacyLaunchers) {
+        try {
+          const legacyEnabled = await legacy.isEnabled()
+          if (legacyEnabled) await legacy.disable()
+        } catch {
+          // ignore
+        }
       }
     } catch (error) {
       console.error('Failed to disable auto-start:', error);
@@ -103,7 +138,19 @@ export class ElectronAutoStartAdapter implements IAutoStartPort {
    */
   async isEnabled(): Promise<boolean> {
     try {
-      return await this.launcher.isEnabled();
+      const mainEnabled = await this.launcher.isEnabled();
+      if (mainEnabled) return true
+
+      // 若旧名称启动项仍在，UI 应视为“已开启”，以便用户可一键关闭并清理
+      for (const legacy of this.legacyLaunchers) {
+        try {
+          const legacyEnabled = await legacy.isEnabled()
+          if (legacyEnabled) return true
+        } catch {
+          // ignore
+        }
+      }
+      return false
     } catch (error) {
       console.error('Failed to check if auto-start is enabled:', error);
       throw error;

@@ -233,11 +233,26 @@ class ProjectCommand extends BasePouchCommand {
   }
 
   /**
+   * 检查是否启用了远程模式
+   * @returns {boolean} 是否为远程模式
+   */
+  isRemoteMode() {
+    return process.env.PROMPTX_REMOTE_MODE === 'true'
+  }
+
+  /**
    * 直接验证项目路径（避免依赖 ProjectManager 实例）
    * @param {string} projectPath - 要验证的路径
    * @returns {Promise<Object|null>} 错误对象或 null（路径有效）
    */
   async validateProjectPathDirectly(projectPath) {
+    // 🎯 远程模式：跳过本地路径验证
+    // 适用于 PromptX 和项目工程在不同机器上的场景
+    if (this.isRemoteMode()) {
+      logger.info(`[ProjectCommand] 远程模式已启用，跳过本地路径验证: ${projectPath}`)
+      return null  // 直接返回有效
+    }
+
     try {
       const os = require('os')
 

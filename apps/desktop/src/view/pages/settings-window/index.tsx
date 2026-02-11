@@ -11,6 +11,7 @@ interface ServerConfig {
   host: string
   port: number
   debug: boolean
+  remoteMode: boolean
 }
 
 interface StatusMessage {
@@ -24,7 +25,8 @@ function SettingsWindow() {
   const [serverConfig, setServerConfig] = useState<ServerConfig>({
     host: "127.0.0.1",
     port: 5203,
-    debug: false
+    debug: false,
+    remoteMode: false
   })
   const [statusMessage, setStatusMessage] = useState<StatusMessage>({ type: null, message: "" })
   const [isLoading, setIsLoading] = useState(false)
@@ -108,7 +110,8 @@ function SettingsWindow() {
       const defaultConfig = {
         host: "127.0.0.1",
         port: 5203,
-        debug: false
+        debug: false,
+        remoteMode: false
       }
       setServerConfig(defaultConfig)
       await window.electronAPI?.invoke("server-config:reset", defaultConfig)
@@ -170,6 +173,15 @@ function SettingsWindow() {
                   <Label htmlFor="debug-mode">{t("settings.server.debug.label")}</Label>
                 </div>
                 <p className="text-sm text-gray-500">{t("settings.server.debug.description")}</p>
+              </div>
+
+              {/* 远程模式 */}
+              <div className="space-y-2">
+                <div className="flex items-center space-x-2">
+                  <Switch id="remote-mode" checked={serverConfig.remoteMode} onCheckedChange={checked => handleServerConfigChange("remoteMode", checked)} />
+                  <Label htmlFor="remote-mode">{t("settings.server.remoteMode.label")}</Label>
+                </div>
+                <p className="text-sm text-gray-500">{t("settings.server.remoteMode.description")}</p>
               </div>
 
               {/* 操作按钮 */}

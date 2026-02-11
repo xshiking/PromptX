@@ -33,7 +33,9 @@
     "package": "pnpm build && electron-builder",
     "package:mac": "pnpm build && electron-builder --config electron-builder-dev.yml",
     "package:mac:skip": "electron-builder --config electron-builder-dev.yml",
-    "package:win": "pnpm build && electron-builder --win",
+    "package:win": "pnpm build && node scripts/package-win.cjs",
+    "package:win:unsigned": "pnpm build && node scripts/package-win.cjs --unsigned",
+    "package:win:signed": "pnpm build && node scripts/package-win.cjs --signed",
     "package:linux": "pnpm build && electron-builder --linux",
     "dist": "pnpm package:mac"
   },
