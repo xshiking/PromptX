@@ -65,6 +65,15 @@ DMN查看全景 → 多轮recall深挖 → 用记忆回答 → remember保存新
         ],
         description: '检索关键词：单词或空格分隔的多词(string)、或null(DMN模式,自动选择枢纽节点)。多词示例："PromptX 测试 修复"。必须使用记忆网络图中实际存在的词。'
       },
+      scope: {
+        type: 'string',
+        enum: ['project', 'user', 'both'],
+        description: '记忆读取范围：project(项目共享)、user(个人)、both(合并)'
+      },
+      debug: {
+        type: 'boolean',
+        description: '是否在MCP输出中附带诊断信息（路径解析/文件存在性等）'
+      },
       mode: {
         type: 'string',
         enum: ['creative', 'balanced', 'focused'],
@@ -73,7 +82,7 @@ DMN查看全景 → 多轮recall深挖 → 用记忆回答 → remember保存新
     },
     required: ['role']
   },
-  handler: async (args: { role: string; query?: string | null; mode?: string }) => {
+  handler: async (args: { role: string; query?: string | null; mode?: string; scope?: 'project' | 'user' | 'both'; debug?: boolean }) => {
     const core = await import('@promptx/core');
     const coreExports = core.default || core;
     const cli = (coreExports as any).cli || (coreExports as any).pouch?.cli;
@@ -86,6 +95,8 @@ DMN查看全景 → 多轮recall深挖 → 用记忆回答 → remember保存新
     const cliArgs: any[] = [{
       role: args.role,
       query: args.query ?? null,  // undefined转为null
+      scope: args.scope,
+      debug: args.debug,
       mode: args.mode
     }];
 

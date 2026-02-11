@@ -9,6 +9,8 @@ export { projectTool } from './project.js';
 // export { learnTool } from './learn.js';  // 暂时禁用 learn 工具
 export { recallTool } from './recall.js';
 export { rememberTool } from './remember.js';
+export { knowledgeSearchTool } from './knowledge_search.js';
+export { knowledgeRefreshTool } from './knowledge_refresh.js';
 export { toolxTool } from './toolx.js';
 
 import { discoverTool } from './welcome.js';
@@ -17,6 +19,8 @@ import { projectTool } from './project.js';
 // import { learnTool } from './learn.js';  // 暂时禁用 learn 工具
 import { recallTool } from './recall.js';
 import { rememberTool } from './remember.js';
+import { knowledgeSearchTool } from './knowledge_search.js';
+import { knowledgeRefreshTool } from './knowledge_refresh.js';
 import { toolxTool } from './toolx.js';
 
 /**
@@ -30,5 +34,7 @@ export const allTools = [
   // learnTool,  // 暂时禁用 learn 工具
   recallTool,
   rememberTool,
+  knowledgeSearchTool,
+  knowledgeRefreshTool,
   toolxTool
 ];

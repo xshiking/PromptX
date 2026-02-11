@@ -4,6 +4,7 @@ const os = require('os');
 const CognitionSystem = require('./CognitionSystem');
 const Anchor = require('./Anchor');
 const logger = require('@promptx/logger');
+const ProjectManager = require('~/project/ProjectManager');
 
 /**
  * CognitionManager - 认知系统管理器
@@ -25,8 +26,8 @@ const logger = require('@promptx/logger');
 class CognitionManager {
   constructor(resourceManager = null) {
     this.resourceManager = resourceManager;
-    this.systems = new Map(); // roleId -> CognitionSystem
-    this.basePath = path.join(os.homedir(), '.promptx', 'cognition');
+    this.systems = new Map(); // `${scope}:${roleId}` -> CognitionSystem
+    this.userBasePath = path.join(os.homedir(), '.promptx', 'cognition');
   }
   
   /**
@@ -43,29 +44,86 @@ class CognitionManager {
   }
 
   /**
+   * 获取 scope 对应的 basePath
+   * - user: ~/.promptx/cognition
+   * - project: project://.promptx/memory/cognition （支持HTTP映射）
+   * @param {'user'|'project'} scope
+   * @returns {Promise<string>}
+   */
+  async getBasePath(scope) {
+    if (scope === 'user') {
+      return this.userBasePath;
+    }
+
+    if (scope === 'project') {
+      if (!ProjectManager.isInitialized()) {
+        throw new Error('项目未初始化，请先调用 project 命令绑定项目');
+      }
+
+      let currentProject = null;
+      try {
+        currentProject = ProjectManager.getCurrentProject();
+      } catch {
+        // ignore
+      }
+
+      // 优先使用@project协议（支持HTTP模式映射）
+      const projectProtocol = this.resourceManager?.protocols?.get?.('project');
+      if (projectProtocol && typeof projectProtocol.resolvePath === 'function') {
+        const resolved = await projectProtocol.resolvePath('.promptx/memory/cognition');
+        logger.debug('[CognitionManager] Resolved project cognition basePath', {
+          scope,
+          transport: currentProject?.transport,
+          workingDirectory: currentProject?.workingDirectory,
+          resolved
+        });
+        return resolved;
+      }
+
+      // 兜底：直接拼接本地项目路径
+      const projectRoot = ProjectManager.getCurrentProjectPath();
+      const resolved = path.join(projectRoot, '.promptx', 'memory', 'cognition');
+      logger.debug('[CognitionManager] Resolved project cognition basePath (fallback)', {
+        scope,
+        transport: currentProject?.transport,
+        workingDirectory: currentProject?.workingDirectory,
+        resolved
+      });
+      return resolved;
+    }
+
+    throw new Error(`不支持的scope: ${scope}`);
+  }
+
+  /**
    * 获取角色的存储路径
    * @param {string} roleId - 角色ID
+   * @param {'user'|'project'} scope - 存储范围
    * @returns {string} 存储路径
    */
-  getRolePath(roleId) {
-    return path.join(this.basePath, roleId);
+  async getRolePath(roleId, scope = 'user') {
+    const basePath = await this.getBasePath(scope);
+    return path.join(basePath, roleId);
   }
 
   /**
    * 获取角色的 network.json 文件路径
    * @param {string} roleId - 角色ID
+   * @param {'user'|'project'} scope - 存储范围
    * @returns {string} network.json 文件路径
    */
-  getNetworkFilePath(roleId) {
-    return path.join(this.getRolePath(roleId), 'network.json');
+  async getNetworkFilePath(roleId, scope = 'user') {
+    const rolePath = await this.getRolePath(roleId, scope);
+    return path.join(rolePath, 'network.json');
   }
 
   /**
    * 确保角色的存储目录存在
    * @param {string} roleId - 角色ID
+   * @param {'user'|'project'} scope - 存储范围
    */
-  async ensureRoleDirectory(roleId) {
-    const rolePath = this.getRolePath(roleId);
+  async ensureRoleDirectory(roleId, scope = 'user') {
+    const rolePath = await this.getRolePath(roleId, scope);
     try {
       await fs.mkdir(rolePath, { recursive: true });
       logger.debug(`[CognitionManager] Ensured directory for role: ${roleId}`);
@@ -78,48 +136,87 @@ class CognitionManager {
   /**
    * 获取或创建角色的认知系统实例
    * @param {string} roleId - 角色ID
+   * @param {Object} [options]
+   * @param {'user'|'project'} [options.scope] - 数据范围
    * @returns {CognitionSystem} 认知系统实例
    */
-  async getSystem(roleId) {
-    if (!this.systems.has(roleId)) {
-      logger.info(`[CognitionManager] Creating new CognitionSystem for role: ${roleId}`);
-      
-      // 确保目录存在
-      await this.ensureRoleDirectory(roleId);
-      
+  async getSystem(roleId, options = {}) {
+    const scope = options.scope || 'user';
+    const key = `${scope}:${roleId}`;
+
+    if (!this.systems.has(key)) {
+      logger.info(`[CognitionManager] Creating new CognitionSystem for role: ${roleId}`, { scope });
+
+      // user scope：允许创建目录；project scope：避免读操作产生副作用（不主动创建）
+      if (scope === 'user') {
+        await this.ensureRoleDirectory(roleId, scope);
+      }
+
       // 创建新的认知系统实例
-      const system = new CognitionSystem();
-      
+      const system = new CognitionSystem({
+        memoryMode: scope === 'project' ? 'readonly' : 'readwrite'
+      });
+
       // 为Network添加必要的属性
       system.network.roleId = roleId;
-      system.network.directory = this.getRolePath(roleId);
-      
+      system.network.directory = await this.getRolePath(roleId, scope);
+
       // 尝试加载已有的认知数据
-      const networkFilePath = this.getNetworkFilePath(roleId);
+      const networkFilePath = await this.getNetworkFilePath(roleId, scope);
+
+      // 额外日志：帮助定位“路径/文件不存在”
+      try {
+        const engramsPath = path.join(system.network.directory, 'engrams.db');
+        const [networkExists, engramsExists] = await Promise.all([
+          fs.access(networkFilePath).then(() => true).catch(() => false),
+          fs.access(engramsPath).then(() => true).catch(() => false)
+        ]);
+        logger.debug('[CognitionManager] Cognition storage probe', {
+          scope,
+          roleId,
+          roleDir: system.network.directory,
+          networkFilePath,
+          networkExists,
+          engramsPath,
+          engramsExists,
+          memoryMode: system.memoryMode
+        });
+      } catch (e) {
+        logger.debug('[CognitionManager] Cognition storage probe failed (ignored)', {
+          scope,
+          roleId,
+          error: e?.message || String(e)
+        });
+      }
+
       try {
         await system.network.load(networkFilePath);
-        logger.info(`[CognitionManager] Loaded existing network data for role: ${roleId}`);
+        logger.info(`[CognitionManager] Loaded existing network data for role: ${roleId}`, { scope });
       } catch (error) {
         // 文件不存在或解析失败，使用空的认知系统
         if (error.code !== 'ENOENT') {
           logger.warn(`[CognitionManager] Failed to load network data for role ${roleId}:`, error.message);
         } else {
-          logger.debug(`[CognitionManager] No existing network data for role: ${roleId}`);
+          logger.debug(`[CognitionManager] No existing network data for role: ${roleId}`, { scope });
         }
       }
-      
-      this.systems.set(roleId, system);
+
+      this.systems.set(key, system);
     }
-    
-    return this.systems.get(roleId);
+
+    return this.systems.get(key);
   }
 
   /**
    * 保存角色的认知数据
    * @param {string} roleId - 角色ID
+   * @param {Object} [options]
+   * @param {'user'} [options.scope] - 仅支持user保存（remember保持个人记忆）
    */
-  async saveSystem(roleId) {
-    const system = this.systems.get(roleId);
+  async saveSystem(roleId, options = {}) {
+    const scope = options.scope || 'user';
+    const key = `${scope}:${roleId}`;
+    const system = this.systems.get(key);
     if (!system) {
       logger.warn(`[CognitionManager] No system to save for role: ${roleId}`);
       return;
@@ -127,10 +224,10 @@ class CognitionManager {
 
     try {
       // 确保目录存在
-      await this.ensureRoleDirectory(roleId);
+      await this.ensureRoleDirectory(roleId, scope);
       
       // 使用 Network 的 persist 方法直接保存
-      const networkFilePath = this.getNetworkFilePath(roleId);
+      const networkFilePath = await this.getNetworkFilePath(roleId, scope);
       await system.network.persist(networkFilePath);
       
       logger.info(`[CognitionManager] Saved network data for role: ${roleId}`);
@@ -141,20 +238,50 @@ class CognitionManager {
   }
 
   /**
+   * 将mind状态锚定到用户目录（避免project scope 产生仓库副作用）
+   */
+  async anchorToUser(roleId, centerWord, mind) {
+    try {
+      const userRoleDir = await this.getRolePath(roleId, 'user');
+      // 仅提供Anchor所需字段，避免与Network强耦合
+      const anchor = new Anchor({ roleId, directory: userRoleDir });
+      await anchor.execute(centerWord, mind);
+    } catch (error) {
+      logger.error('[CognitionManager] Failed to anchor to user scope', { error: error.message });
+    }
+  }
+
+  /**
+   * 从用户目录加载锚定状态（避免project scope 共享用户工作记忆）
+   */
+  async loadUserAnchor(roleId) {
+    try {
+      const userRoleDir = await this.getRolePath(roleId, 'user');
+      const anchor = new Anchor({ roleId, directory: userRoleDir });
+      return await anchor.load();
+    } catch (error) {
+      logger.error('[CognitionManager] Failed to load user anchor', { error: error.message });
+      return null;
+    }
+  }
+
+  /**
    * Prime - 获取角色的认知概览
    * 优先从锚定状态恢复，如果没有则执行常规prime
    * @param {string} roleId - 角色ID
+   * @param {Object} [options]
+   * @param {'user'|'project'|'both'} [options.scope]
    * @returns {Mind} Mind 对象
    */
-  async prime(roleId) {
+  async prime(roleId, options = {}) {
+    const scope = options.scope || 'user';
     logger.info(`[CognitionManager] Prime for role: ${roleId}`);
     
-    const system = await this.getSystem(roleId);
+    const system = await this.getSystem(roleId, { scope: scope === 'both' ? 'user' : scope });
     logger.debug(`[CognitionManager] System network size before prime: ${system.network.size()}`);
     
     // 尝试从锚定状态恢复
-    const anchor = new Anchor(system.network);
-    const anchoredState = await anchor.load();
+    const anchoredState = await this.loadUserAnchor(roleId);
     
     let mind = null;
     
@@ -200,39 +327,127 @@ class CognitionManager {
    * @param {string} query - 查询词
    * @param {Object} options - 可选参数
    * @param {string} options.mode - 认知激活模式 ('creative' | 'balanced' | 'focused')
+   * @param {'project'|'user'|'both'} options.scope - 读取范围
    * @returns {Promise<Mind>} Mind 对象（包含engrams）
    */
   async recall(roleId, query, options = {}) {
     const mode = options.mode || 'balanced';
-    logger.info(`[CognitionManager] Recall for role: ${roleId}, query: "${query}", mode: ${mode}`);
+    const scope = options.scope || 'user';
+    const debug = !!options.debug;
+    logger.info(`[CognitionManager] Recall for role: ${roleId}, query: "${query}", scope: ${scope}, mode: ${mode}`);
 
-    const system = await this.getSystem(roleId);
+    const buildDiagnostics = async (singleScope) => {
+      const basePath = await this.getBasePath(singleScope);
+      const roleDir = await this.getRolePath(roleId, singleScope);
+      const networkFilePath = await this.getNetworkFilePath(roleId, singleScope);
+      const engramsPath = path.join(roleDir, 'engrams.db');
+      const [networkExists, engramsExists] = await Promise.all([
+        fs.access(networkFilePath).then(() => true).catch(() => false),
+        fs.access(engramsPath).then(() => true).catch(() => false)
+      ]);
 
-    // 执行recall（现在是异步的，会加载engrams），传入 mode 参数
-    const mind = await system.recall(query, { mode });
+      return {
+        scope: singleScope,
+        basePath,
+        roleId,
+        roleDir,
+        networkFilePath,
+        networkExists,
+        engramsPath,
+        engramsExists,
+        note: singleScope === 'project'
+          ? 'project scope is readonly: missing engrams.db will be skipped (no file creation)'
+          : undefined
+      };
+    };
+
+    const recallOnce = async (singleScope) => {
+      const system = await this.getSystem(roleId, { scope: singleScope });
+
+      // Project scope memory may be created/synced after the server started.
+      // If we already cached an empty system (network.json was missing at that time),
+      // reload network.json on-demand when it becomes available.
+      if (singleScope === 'project') {
+        try {
+          const networkFilePath = await this.getNetworkFilePath(roleId, singleScope);
+          const exists = await fs.access(networkFilePath).then(() => true).catch(() => false);
+          if (exists && system?.network?.size && system.network.size() === 0) {
+            await system.network.load(networkFilePath);
+            logger.info('[CognitionManager] Reloaded project network.json (hot)', {
+              roleId,
+              networkFilePath
+            });
+          }
+        } catch (e) {
+          logger.warn('[CognitionManager] Failed to hot-reload project network.json (ignored)', {
+            roleId,
+            error: e?.message || String(e)
+          });
+        }
+      }
+
+      const mind = await system.recall(query, { mode });
+      if (mind && debug) {
+        try {
+          mind.diagnostics = await buildDiagnostics(singleScope);
+        } catch (e) {
+          mind.diagnostics = { scope: singleScope, error: e?.message || String(e) };
+        }
+      }
+      return mind;
+    };
+
+    let mind = null;
+    if (scope === 'both') {
+      const [projectMind, userMind] = await Promise.all([
+        recallOnce('project').catch(() => null),
+        recallOnce('user').catch(() => null)
+      ]);
+
+      mind = userMind || projectMind;
+      if (mind && projectMind && mind !== projectMind) {
+        mind.merge(projectMind);
+      }
+
+      // 合并engrams（去重）
+      const mergedEngrams = [];
+      const seen = new Set();
+      const addEngrams = (list) => {
+        if (!Array.isArray(list)) return;
+        for (const e of list) {
+          const id = e?.id || JSON.stringify(e);
+          if (!seen.has(id)) {
+            seen.add(id);
+            mergedEngrams.push(e);
+          }
+        }
+      };
+      addEngrams(userMind?.engrams);
+      addEngrams(projectMind?.engrams);
+      if (mind) {
+        mind.engrams = mergedEngrams;
+        if (debug) {
+          mind.diagnostics = {
+            scope: 'both',
+            sources: [
+              userMind?.diagnostics || { scope: 'user' },
+              projectMind?.diagnostics || { scope: 'project' }
+            ]
+          };
+        }
+      }
+    } else {
+      mind = await recallOnce(scope);
+    }
 
     if (!mind) {
       logger.warn(`[CognitionManager] Recall returned null for role: ${roleId}, query: ${query}`);
       return null;
     }
 
-    // 自动锚定当前认知状态（仅当recall成功激活了节点）
+    // 自动锚定当前认知状态（写入用户目录，避免project scope产生副作用）
     if (mind && mind.activatedCues && mind.activatedCues.size > 0) {
-      try {
-        const anchor = new Anchor(system.network);
-        await anchor.execute(query, mind);
-        logger.debug(`[CognitionManager] Auto-anchored state after recall: "${query}"`, {
-          activatedNodes: mind.activatedCues.size
-        });
-      } catch (error) {
-        logger.error(`[CognitionManager] Failed to auto-anchor state:`, error);
-        // 锚定失败不影响recall结果
-      }
-    } else {
-      logger.debug(`[CognitionManager] Skip anchoring - recall returned empty mind`, {
-        query,
-        hasActivatedCues: mind?.activatedCues?.size || 0
-      });
+      await this.anchorToUser(roleId, query, mind);
     }
 
     return mind;
@@ -246,7 +461,8 @@ class CognitionManager {
   async remember(roleId, engrams) {
     logger.info(`[CognitionManager] Remember for role: ${roleId}, ${engrams.length} engrams`);
     
-    const system = await this.getSystem(roleId);
+    // remember 保持个人记忆（user scope）
+    const system = await this.getSystem(roleId, { scope: 'user' });
     const Engram = require('./Engram');
     
     for (const engramData of engrams) {
@@ -281,7 +497,7 @@ class CognitionManager {
     }
     
     // 保存更新后的认知数据
-    await this.saveSystem(roleId);
+    await this.saveSystem(roleId, { scope: 'user' });
     
     logger.info(`[CognitionManager] Successfully saved ${engrams.length} engrams for role: ${roleId}`);
   }

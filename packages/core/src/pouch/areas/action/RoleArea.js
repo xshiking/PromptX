@@ -5,7 +5,7 @@ const BaseArea = require('../BaseArea')
  * 负责渲染角色相关内容：人格特征、行为原则、专业知识
  */
 class RoleArea extends BaseArea {
-  constructor(roleId, roleSemantics, semanticRenderer, resourceManager, thoughts, executions, roleName) {
+  constructor(roleId, roleSemantics, semanticRenderer, resourceManager, thoughts, executions, roleName, includeKnowledge = false) {
     super('ROLE_AREA')
     this.roleId = roleId
     this.roleName = roleName || roleId
@@ -14,6 +14,7 @@ class RoleArea extends BaseArea {
     this.resourceManager = resourceManager
     this.thoughts = thoughts || []
     this.executions = executions || []
+    this.includeKnowledge = includeKnowledge
   }
 
   /**
@@ -38,9 +39,11 @@ class RoleArea extends BaseArea {
     }
     
     // 3. 专业知识
-    const knowledgeContent = await this.renderKnowledge()
-    if (knowledgeContent) {
-      content += knowledgeContent + '\n'
+    if (this.includeKnowledge) {
+      const knowledgeContent = await this.renderKnowledge()
+      if (knowledgeContent) {
+        content += knowledgeContent + '\n'
+      }
     }
     
     // 4. 激活总结
@@ -149,7 +152,7 @@ class RoleArea extends BaseArea {
     const components = []
     if (this.roleSemantics?.personality) components.push('👤 人格特征')
     if (this.roleSemantics?.principle) components.push('⚖️ 行为原则')
-    if (this.roleSemantics?.knowledge) components.push('📚 专业知识')
+    if (this.includeKnowledge && this.roleSemantics?.knowledge) components.push('📚 专业知识')
     
     content += `- 🎭 角色组件：${components.join(', ')}\n`
     

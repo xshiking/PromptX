@@ -20,6 +20,9 @@ const toolx = require('./toolx')
 // Pouch CLI 框架
 const pouch = require('./pouch')
 
+// 角色知识库（独立于记忆网）
+const knowledge = require('./knowledge')
+
 // 项目管理模块
 const project = require('./project')
 
@@ -36,6 +39,7 @@ const utils = {
 module.exports = {
   cognition,
   resource,
+  knowledge,
   toolx,
   pouch,
   project,

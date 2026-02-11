@@ -10,6 +10,8 @@ const RecallCommand = require('./RecallCommand')
 const RememberCommand = require('./RememberCommand')
 const ThinkCommand = require('./ThinkCommand')
 const ToolCommand = require('./ToolCommand')
+const KnowledgeSearchCommand = require('./KnowledgeSearchCommand')
+const KnowledgeRefreshCommand = require('./KnowledgeRefreshCommand')
 
 module.exports = {
   ProjectCommand,
@@ -19,5 +21,7 @@ module.exports = {
   RecallCommand,
   RememberCommand,
   ThinkCommand,
-  ToolCommand
+  ToolCommand,
+  KnowledgeSearchCommand,
+  KnowledgeRefreshCommand
 }

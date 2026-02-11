@@ -119,6 +119,14 @@ class CognitionSystem {
      * @type {Memory|null}
      */
     this.memory = null;
+
+    /**
+     * Memory 打开模式
+     * - readwrite: 默认模式（允许创建/写入）
+     * - readonly: 只读模式（不允许创建/写入；若文件不存在则不加载）
+     * @type {'readwrite'|'readonly'}
+     */
+    this.memoryMode = options.memoryMode || 'readwrite';
     
     logger.info('[CognitionSystem] Initialized', {
       dataPath: this.dataPath,
@@ -181,7 +189,31 @@ class CognitionSystem {
     if (!this.memory && this.network.directory) {
       const path = require('path');
       const memoryPath = path.join(this.network.directory, 'engrams.db');
-      this.memory = new Memory(memoryPath);
+      if (this.memoryMode === 'readonly') {
+        const fs = require('fs');
+        // 只读模式：文件不存在则不创建
+        if (!fs.existsSync(memoryPath)) {
+          logger.debug('[CognitionSystem] Skip memory load (readonly, db missing)', {
+            roleId: this.network.roleId,
+            directory: this.network.directory,
+            memoryPath
+          });
+          return null;
+        }
+        logger.debug('[CognitionSystem] Loading memory (readonly)', {
+          roleId: this.network.roleId,
+          directory: this.network.directory,
+          memoryPath
+        });
+        this.memory = new Memory(memoryPath, { readonly: true });
+      } else {
+        logger.debug('[CognitionSystem] Loading memory (readwrite)', {
+          roleId: this.network.roleId,
+          directory: this.network.directory,
+          memoryPath
+        });
+        this.memory = new Memory(memoryPath);
+      }
     }
     return this.memory;
   }

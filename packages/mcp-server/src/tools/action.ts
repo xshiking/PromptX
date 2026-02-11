@@ -100,11 +100,15 @@ export const actionTool: ToolWithHandler = {
       role: {
         type: 'string',
         description: '要激活的角色ID，如：copywriter, product-manager, java-backend-developer'
+      },
+      includeKnowledge: {
+        type: 'boolean',
+        description: '是否在激活输出中展开并包含专业知识（默认false，建议按需用promptx_knowledge_search检索）'
       }
     },
     required: ['role']
   },
-  handler: async (args: { role: string }) => {
+  handler: async (args: { role: string; includeKnowledge?: boolean }) => {
     // 动态导入 @promptx/core
     const core = await import('@promptx/core');
     const coreExports = core.default || core;
@@ -116,8 +120,11 @@ export const actionTool: ToolWithHandler = {
       throw new Error('CLI not available in @promptx/core');
     }
     
-    // 执行 action 命令
-    const result = await cli.execute('action', [args.role]);
+    // 执行 action 命令（默认不展开知识）
+    const result = await cli.execute('action', [{
+      role: args.role,
+      includeKnowledge: args.includeKnowledge === true
+    }]);
     
     // 使用 OutputAdapter 格式化输出
     return outputAdapter.convertToMCPFormat(result);

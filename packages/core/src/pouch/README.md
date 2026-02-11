@@ -55,6 +55,24 @@ await cli.execute('learn', ['scrum']);
 await cli.execute('recall', ['frontend']);
 ```
 
+### recall 读取范围（scope）
+
+`recall` 支持可选参数 `scope` 用于控制记忆读取范围：
+
+- `user`：个人记忆（默认）
+- `project`：项目共享记忆（需先 `project` 绑定）
+- `both`：合并读取（个人 + 项目）
+
+示例：
+
+```javascript
+// 只读项目记忆
+await cli.execute('recall', [{ role: 'frontend', query: 'React Hooks', scope: 'project', mode: 'focused' }]);
+
+// 合并读取
+await cli.execute('recall', [{ role: 'frontend', query: 'React Hooks', scope: 'both' }]);
+```
+
 ### 3. 获取状态
 
 ```javascript

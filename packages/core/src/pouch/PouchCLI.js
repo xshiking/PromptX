@@ -32,7 +32,12 @@ class PouchCLI {
       recall: commands.RecallCommand,
       remember: commands.RememberCommand,
       think: commands.ThinkCommand,
-      toolx: commands.ToolCommand
+      toolx: commands.ToolCommand,
+      'knowledge.search': commands.KnowledgeSearchCommand,
+      'knowledge.refresh': commands.KnowledgeRefreshCommand,
+      // 兼容：部分宿主把 tool 名当 command 名（下划线）
+      knowledge_search: commands.KnowledgeSearchCommand,
+      knowledge_refresh: commands.KnowledgeRefreshCommand
     })
 
     // 将命令注册到状态机

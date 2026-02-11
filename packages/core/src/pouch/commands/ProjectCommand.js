@@ -101,6 +101,10 @@ class ProjectCommand extends BasePouchCommand {
     // 2. 基础环境准备 - 现在可以安全使用项目路径
     await this.ensurePromptXDirectory(projectPath)
 
+    // 2.1 初始化项目角色的知识库 DB schema（仅建库建表，不做索引导入）
+    // 目的：避免后续首次按需检索时因“库/表不存在”产生不确定体验
+    await this.initializeKnowledgeDbForProjectRoles()
+
     // 3. 项目级注册表现在由 DiscoverCommand 在需要时生成
     const registryStats = { 
       message: `✅ 项目资源目录已准备就绪
@@ -130,6 +134,48 @@ class ProjectCommand extends BasePouchCommand {
     
     const stateArea = new StateArea('initialized')
     this.registerArea(stateArea)
+  }
+
+  /**
+   * 初始化项目角色的 knowledge.db（只建库建表）
+   * - 扫描项目资源目录，找到所有 project 角色资源（*.role.md）
+   * - 对每个 roleId 打开一次 KnowledgeStore 以触发 schema 初始化
+   * @returns {Promise<void>}
+   */
+  async initializeKnowledgeDbForProjectRoles() {
+    try {
+      // 仅在项目已初始化的情况下执行
+      if (!ProjectManager.isInitialized()) {
+        return
+      }
+
+      const discovery = this.projectDiscovery || new ProjectDiscovery()
+      const resources = await discovery.scanProjectResources()
+      const roleIds = (resources || [])
+        .filter(r => r && r.protocol === 'role' && r.id)
+        .map(r => r.id)
+
+      // 去重
+      const uniqueRoleIds = Array.from(new Set(roleIds))
+      if (uniqueRoleIds.length === 0) {
+        return
+      }
+
+      // 延迟 require，避免在不需要时加载 better-sqlite3
+      const KnowledgeStore = require('../../knowledge/KnowledgeStore')
+
+      for (const roleId of uniqueRoleIds) {
+        try {
+          const store = new KnowledgeStore({ roleId })
+          store.close()
+        } catch (e) {
+          // 静默降级：FTS5 不可用等问题不应阻塞 project 绑定
+          logger.warn(`[ProjectCommand] Knowledge DB init skipped for role ${roleId}: ${e?.message || String(e)}`)
+        }
+      }
+    } catch (error) {
+      logger.warn(`[ProjectCommand] Failed to initialize knowledge DB for project roles: ${error?.message || String(error)}`)
+    }
   }
 
   /**

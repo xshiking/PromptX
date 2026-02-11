@@ -431,10 +431,63 @@ export class ResourceListWindow {
         if (!exists) return { success: false, message: t('resources.fileNotExists') + `: ${relativePath}` }
 
         await fs.writeFile(absPath, content, 'utf-8')
+
+        // ✅ 角色知识库索引：对用户无感的增量重建
+        // 当角色资源文件发生变更（尤其是 role 主文件 / knowledge 相关文件），在后台触发一次 reindex，
+        // 以便后续能够通过 knowledge.search / promptx_knowledge_search 立即命中最新内容。
+        if (type === 'role') {
+          try {
+            // 动态导入 core（避免主进程启动时强耦合）
+            const core = require('@promptx/core')
+            const rm = core.resource?.getGlobalResourceManager?.()
+            if (rm && !rm.initialized) {
+              await rm.initializeWithNewArchitecture()
+            }
+            const KnowledgeManager = core.knowledge?.KnowledgeManager
+            if (KnowledgeManager && rm) {
+              const km = new KnowledgeManager(rm)
+              // 这里使用 force=true，确保用户编辑后的引用/内容能立刻生效
+              await km.reindex(id)
+            }
+          } catch (e) {
+            // 失败静默降级：不影响保存主流程
+          }
+        }
+
         return { success: true, path: absPath }
       } catch (error: any) {
         console.error('Failed to save file:', error)
         return { success: false, message: error?.message || t('resources.saveFailed') }
+      }
+    })
+
+    // 新增：知识注入块组装（按“当前角色读知识库”的方式展开引用）
+    // - 读取 @role://roleId 的 <knowledge> 段
+    // - 在原位置展开 @knowledge://... 引用
+    // - 不依赖记忆网，不需要 query（保留参数仅为兼容未来按需策略）
+    ipcMain.handle('knowledge:composeInjection', async (_evt, payload: { roleId: string; query?: string; limit?: number }) => {
+      try {
+        const roleId = payload?.roleId
+        if (!roleId) {
+          return { success: false, message: 'Missing roleId' }
+        }
+
+        const core = require('@promptx/core')
+        const rm = core.resource?.getGlobalResourceManager?.()
+        if (rm && !rm.initialized) {
+          await rm.initializeWithNewArchitecture()
+        }
+        const KnowledgeManager = core.knowledge?.KnowledgeManager
+        if (!KnowledgeManager || !rm) {
+          return { success: false, message: 'KnowledgeManager not available' }
+        }
+
+        const km = new KnowledgeManager(rm)
+        const text = await km.renderRoleKnowledge(roleId)
+
+        return { success: true, text }
+      } catch (error: any) {
+        return { success: false, message: error?.message || String(error) }
       }
     })
 
@@ -650,7 +703,8 @@ export class ResourceListWindow {
         }
 
         // 执行 action 命令获取渲染后的提示词
-        const result = await cli.execute('action', [id])
+        // 预览需要完整提示词，因此显式 includeKnowledge=true
+        const result = await cli.execute('action', [{ role: id, includeKnowledge: true }])
 
         // result 包含渲染后的完整提示词
         if (result && typeof result === 'string') {

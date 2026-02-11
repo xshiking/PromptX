@@ -27,7 +27,9 @@ const defaultConfig: LoggerConfig = {
   level: process.env.LOG_LEVEL || 'info',
   console: true,
   file: {
-    dirname: path.join(os.homedir(), '.promptx', 'logs')
+    // Allow overriding log directory in restricted environments (e.g. corporate Windows)
+    // Example (Windows): set PROMPTX_LOG_DIR=%LOCALAPPDATA%\\PromptX\\logs
+    dirname: process.env.PROMPTX_LOG_DIR || path.join(os.homedir(), '.promptx', 'logs')
   },
   colors: true
 }
@@ -80,9 +82,23 @@ export function createLogger(config: LoggerConfig = {}): pino.Logger {
   // Ensure log directory exists
   if (finalConfig.file) {
     const fileConfig = typeof finalConfig.file === 'object' ? finalConfig.file : {}
-    const logDir = fileConfig.dirname || path.join(os.homedir(), '.promptx', 'logs')
-    if (!fs.existsSync(logDir)) {
-      fs.mkdirSync(logDir, { recursive: true })
+    const logDir =
+      // Env var always wins, even if caller passed file.dirname
+      process.env.PROMPTX_LOG_DIR ||
+      fileConfig.dirname ||
+      path.join(os.homedir(), '.promptx', 'logs')
+
+    try {
+      if (!fs.existsSync(logDir)) {
+        fs.mkdirSync(logDir, { recursive: true })
+      }
+    } catch (err: any) {
+      // Permission denied or other filesystem issues: downgrade to console-only
+      // Avoid crashing the whole app/server because logging directory is not writable.
+      const msg = `[logger] Cannot access log directory, falling back to console-only: ${logDir} (${err?.message || err})`
+      // eslint-disable-next-line no-console
+      console.warn(msg)
+      finalConfig.file = false
     }
   }
   
@@ -95,7 +111,10 @@ export function createLogger(config: LoggerConfig = {}): pino.Logger {
     
     if (finalConfig.file) {
       const fileConfig = typeof finalConfig.file === 'object' ? finalConfig.file : {}
-      const logDir = fileConfig.dirname || path.join(os.homedir(), '.promptx', 'logs')
+      const logDir =
+        process.env.PROMPTX_LOG_DIR ||
+        fileConfig.dirname ||
+        path.join(os.homedir(), '.promptx', 'logs')
       const today = new Date().toISOString().split('T')[0]
       const logPath = path.join(logDir, `promptx-${today}.log`)
 
@@ -171,7 +190,10 @@ export function createLogger(config: LoggerConfig = {}): pino.Logger {
     // File transport
     if (finalConfig.file) {
       const fileConfig = typeof finalConfig.file === 'object' ? finalConfig.file : {}
-      const logDir = fileConfig.dirname || path.join(os.homedir(), '.promptx', 'logs')
+      const logDir =
+        process.env.PROMPTX_LOG_DIR ||
+        fileConfig.dirname ||
+        path.join(os.homedir(), '.promptx', 'logs')
       const today = new Date().toISOString().split('T')[0]
       
       targets.push({

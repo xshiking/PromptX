@@ -154,6 +154,19 @@ class CognitionArea extends BaseArea {
       default:
         content += this.renderDefaultGuide()
     }
+
+    // 诊断信息：用于排查 scope=project/both 路径与文件存在性
+    // 放在通用guide区域，确保 prime/recall/空网/fallback 场景都能显示
+    if (this.mind?.diagnostics) {
+      content += `\n\n🧪 **Recall Diagnostics**（调试用）\n\n`
+      try {
+        content += '```json\n'
+        content += JSON.stringify(this.mind.diagnostics, null, 2)
+        content += '\n```\n'
+      } catch {
+        content += '```json\n{}\n```\n'
+      }
+    }
     
     // 通用认知循环提示
     content += '\n'

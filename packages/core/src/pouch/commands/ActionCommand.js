@@ -28,7 +28,7 @@ class ActionCommand extends BasePouchCommand {
    * 组装Layers - 使用新的三层架构
    */
   async assembleLayers(args) {
-    const [roleId] = args
+    const { roleId, includeKnowledge } = this.parseArgs(args)
 
     if (!roleId) {
       // 错误情况：只创建角色层显示错误
@@ -70,6 +70,7 @@ class ActionCommand extends BasePouchCommand {
       // 设置上下文
       this.context.roleId = roleId
       this.context.roleInfo = roleInfo
+      this.context.includeKnowledge = includeKnowledge
 
       // 创建角色层
       const roleLayer = new RoleLayer({ roleId, roleInfo })
@@ -82,7 +83,8 @@ class ActionCommand extends BasePouchCommand {
         this.resourceManager,
         dependencies.thoughts,
         dependencies.executions,
-        roleInfo.metadata?.title || roleId
+        roleInfo.metadata?.title || roleId,
+        includeKnowledge
       )
       roleLayer.addRoleArea(roleArea)
       
@@ -101,6 +103,45 @@ class ActionCommand extends BasePouchCommand {
       ))
       this.registerLayer(roleLayer)
     }
+  }
+
+  /**
+   * 解析 action 参数
+   * - MCP: action({ role, includeKnowledge? })
+   * - CLI: action <roleId> [--includeKnowledge=true|false]
+   *
+   * includeKnowledge 默认 false（避免展开大量知识占上下文）
+   */
+  parseArgs(args) {
+    // 默认：不展开知识
+    let includeKnowledge = false
+
+    if (!args || args.length === 0) {
+      return { roleId: '', includeKnowledge }
+    }
+
+    // MCP 传对象
+    if (typeof args[0] === 'object' && args[0] !== null) {
+      const obj = args[0]
+      return {
+        roleId: obj.role || obj.roleId || '',
+        includeKnowledge: obj.includeKnowledge === true
+      }
+    }
+
+    // CLI 形式：action roleId [--includeKnowledge=true|false]
+    const roleId = args[0]
+    for (let i = 1; i < args.length; i++) {
+      const a = String(args[i] || '')
+      if (a.startsWith('--includeKnowledge=')) {
+        const v = a.split('=')[1]
+        includeKnowledge = v === 'true'
+      } else if (a === '--includeKnowledge') {
+        includeKnowledge = true
+      }
+    }
+
+    return { roleId, includeKnowledge }
   }
 
 

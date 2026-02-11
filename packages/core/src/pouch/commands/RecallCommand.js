@@ -26,7 +26,7 @@ class RecallCommand extends BasePouchCommand {
    */
   async assembleLayers(args) {
     // 解析参数：--role, query, mode
-    const { role, query, mode } = this.parseArgs(args)
+    const { role, query, mode, scope, debug } = this.parseArgs(args)
 
     if (!role) {
       // 错误情况：只创建角色层显示错误
@@ -42,19 +42,19 @@ class RecallCommand extends BasePouchCommand {
     }
 
     logger.info('🧠 [RecallCommand] 开始记忆检索流程 (基于认知体系)')
-    logger.info(` [RecallCommand] 角色: ${role}, 查询内容: ${query ? `"${query}"` : '全部记忆'}, 模式: ${mode || 'balanced'}`)
+    logger.info(` [RecallCommand] 角色: ${role}, 查询内容: ${query ? `"${query}"` : '全部记忆'}, 范围: ${scope || 'user'}, 模式: ${mode || 'balanced'}, debug: ${!!debug}`)
 
     try {
       let mind = null
       let fallbackToDMN = false
 
       // 始终执行 recall，query为null时触发DMN模式
-      mind = await this.cognitionManager.recall(role, query, { mode })
+      mind = await this.cognitionManager.recall(role, query, { mode, scope, debug })
 
       // DMN Fallback: 如果有查询词但没找到任何记忆，自动回退到DMN模式
       if (query && (!mind || mind.activatedCues.size === 0)) {
         logger.info('[RecallCommand] No results found for query, falling back to DMN mode')
-        mind = await this.cognitionManager.recall(role, null, { mode })
+        mind = await this.cognitionManager.recall(role, null, { mode, scope, debug })
         fallbackToDMN = true
       }
 
@@ -85,6 +85,8 @@ class RecallCommand extends BasePouchCommand {
       // 设置上下文
       this.context.roleId = role
       this.context.query = query
+      this.context.scope = scope
+      this.context.debug = debug
       this.context.mind = mind
       this.context.fallbackToDMN = fallbackToDMN
 
@@ -147,6 +149,8 @@ class RecallCommand extends BasePouchCommand {
     // 命令行格式：recall role [query] [--mode=creative|balanced|focused]
     const role = args[0]
     let mode = null
+    let scope = null
+    let debug = false
     const queryParts = []
 
     // 解析参数
@@ -154,6 +158,10 @@ class RecallCommand extends BasePouchCommand {
       const arg = args[i]
       if (arg.startsWith('--mode=')) {
         mode = arg.split('=')[1]
+      } else if (arg.startsWith('--scope=')) {
+        scope = arg.split('=')[1]
+      } else if (arg === '--debug') {
+        debug = true
       } else {
         queryParts.push(arg)
       }
@@ -161,7 +169,7 @@ class RecallCommand extends BasePouchCommand {
 
     const query = queryParts.join(' ')
 
-    return { role, query, mode }
+    return { role, query, mode, scope, debug }
   }
 }
 

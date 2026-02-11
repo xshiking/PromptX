@@ -31,8 +31,11 @@ class Memory {
    * 创建Memory实例
    *
    * @param {string} dbPath - 数据库路径
+   * @param {Object} [options] - 可选参数
+   * @param {boolean} [options.readonly] - 只读模式（不建表/不写入/不创建文件）
    */
-  constructor(dbPath) {
+  constructor(dbPath, options = {}) {
+    this.readonly = !!options.readonly;
     // 兼容旧路径：如果是 engrams 结尾，改为 engrams.db
     if (dbPath.endsWith('engrams')) {
       this.dbPath = dbPath + '.db';
@@ -42,8 +45,10 @@ class Memory {
       this.dbPath = dbPath;
     }
 
-    // 确保目录存在
-    fs.ensureDirSync(path.dirname(this.dbPath));
+    // 只读模式不创建目录/文件，避免产生副作用
+    if (!this.readonly) {
+      fs.ensureDirSync(path.dirname(this.dbPath));
+    }
 
     /**
      * SQLite数据库实例
@@ -51,15 +56,30 @@ class Memory {
      */
     try {
       // 尝试打开数据库
-      this.db = new Database(this.dbPath);
-      this.db.pragma('journal_mode = WAL'); // 启用WAL模式，支持并发读
-      this.db.pragma('synchronous = NORMAL'); // 平衡性能和安全
+      if (this.readonly) {
+        this.db = new Database(this.dbPath, { readonly: true, fileMustExist: true });
+        // 只读模式：不设置WAL/不建表，避免写入
+        this._prepareReadStatements();
+      } else {
+        this.db = new Database(this.dbPath);
+        this.db.pragma('journal_mode = WAL'); // 启用WAL模式，支持并发读
+        this.db.pragma('synchronous = NORMAL'); // 平衡性能和安全
 
-      // 创建表和索引
-      this._initializeSchema();
+        // 创建表和索引
+        this._initializeSchema();
+      }
 
       logger.debug('[Memory] Initialized with SQLite', { dbPath: this.dbPath });
     } catch (error) {
+      // 只读模式：打不开就直接抛出（上层会降级为无memory）
+      if (this.readonly) {
+        logger.warn('[Memory] Readonly database open failed', {
+          dbPath: this.dbPath,
+          error: error.message
+        });
+        throw error;
+      }
+
       // 如果打开失败（可能是旧的 lmdb 文件），删除并重建
       logger.warn('[Memory] Database open failed, recreating...', {
         dbPath: this.dbPath,
@@ -159,12 +179,37 @@ class Memory {
   }
 
   /**
+   * 只读模式准备查询语句
+   * @private
+   */
+  _prepareReadStatements() {
+    this.stmts = {
+      getEngram: this.db.prepare('SELECT * FROM engrams WHERE id = ?'),
+      getEngramsByWord: this.db.prepare(`
+        SELECT DISTINCT e.* FROM engrams e
+        JOIN cue_index c ON e.id = c.engram_id
+        WHERE c.word = ?
+      `),
+      getEngramsByType: this.db.prepare('SELECT * FROM engrams WHERE type = ?'),
+      getEngramsByTypeAndWord: this.db.prepare(`
+        SELECT DISTINCT e.* FROM engrams e
+        JOIN cue_index c ON e.id = c.engram_id
+        WHERE e.type = ? AND c.word = ?
+      `),
+      countEngrams: this.db.prepare('SELECT COUNT(*) as count FROM engrams')
+    };
+  }
+
+  /**
    * 存储Engram对象
    *
    * @param {Engram} engram - 要存储的Engram对象
    * @returns {Promise<string>} Engram的id（作为存储key）
    */
   async store(engram) {
+    if (this.readonly) {
+      throw new Error('Memory is readonly');
+    }
     const key = engram.id;
     const engramData = engram.toJSON();
 
@@ -240,6 +285,15 @@ class Memory {
 
       return data;
     } catch (error) {
+      // 只读模式下，如果表不存在等错误，降级为空
+      if (this.readonly) {
+        logger.warn('[Memory] Readonly retrieve failed (ignored)', {
+          key,
+          error: error.message
+        });
+        return null;
+      }
+
       logger.error('[Memory] Failed to retrieve engram', {
         key,
         error: error.message
@@ -273,6 +327,15 @@ class Memory {
 
       return engrams;
     } catch (error) {
+      // 只读模式下，如果表不存在等错误，降级为空
+      if (this.readonly) {
+        logger.warn('[Memory] Readonly query failed (ignored)', {
+          word,
+          error: error.message
+        });
+        return [];
+      }
+
       logger.error('[Memory] Failed to retrieve engrams by word', {
         word,
         error: error.message
@@ -307,6 +370,16 @@ class Memory {
 
       return engrams;
     } catch (error) {
+      // 只读模式下，如果表不存在等错误，降级为空
+      if (this.readonly) {
+        logger.warn('[Memory] Readonly query failed (ignored)', {
+          type,
+          word,
+          error: error.message
+        });
+        return [];
+      }
+
       logger.error('[Memory] Failed to retrieve engrams by type', {
         type,
         word,
